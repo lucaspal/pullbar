@@ -1,0 +1,8 @@
+Sources/pullbar/GitHubClient.swift@@s/first: 100, after:/first: 50, after:/@@batched searches use GitHub's maximum page size
+Sources/pullbar/GitHubClient.swift@@s/if result\.pageInfo\.hasNextPage, let cursor = result\.pageInfo\.endCursor/if false, let cursor = result.pageInfo.endCursor/@@a batched search never follows its next page
+Sources/pullbar/InboxService.swift@@s/result\.directlyRequestedIDs\.contains\(\$0\.id\)/!result.directlyRequestedIDs.contains($0.id)/@@direct requests appear in the teams section
+Sources/pullbar/RefreshPolicy.swift@@s/now\.timeIntervalSince\(lastSuccess\) >= menuFreshnessInterval/now.timeIntervalSince(lastSuccess) > menuFreshnessInterval/@@a refresh exactly at the freshness boundary is skipped
+Sources/pullbar/RefreshPolicy.swift@@s/return min\(stretched, usage\.resetAt\.timeIntervalSince\(now\) \+ 1\)/return configured/@@low API budget does not slow automatic refresh
+Sources/pullbar/RefreshPolicy.swift@@s/return now >= blockedUntil/return now > blockedUntil/@@a refresh is still blocked at the reset instant
+Sources/pullbar/GitHubClient.swift@@s/return \.some\(retryDate\)/return .none/@@Retry-After is ignored for HTTP 429
+Sources/pullbar/GitHubClient.swift@@s/rateLimit\?\.resetAt/nil/@@GraphQL rate-limit cooldown ignores resetAt in partial data

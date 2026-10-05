@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runs the three searches that github.com/pulls/inbox is made of and folds
+/// Fetches the three searches that github.com/pulls/inbox is made of and folds
 /// them into sections.
 struct InboxService {
     let client: GitHubClient
@@ -10,17 +10,25 @@ struct InboxService {
             .compactMap { $0 }
             .joined(separator: " ")
 
-        async let requested = client.searchPullRequests("\(base) review-requested:@me")
-        async let direct = client.searchPullRequests("\(base) user-review-requested:@me")
-        async let authored = client.searchPullRequests("\(base) author:@me")
-
-        let (r, d, a) = try await (requested, direct, authored)
+        let result = try await client.fetchInbox(baseQuery: base)
+        let direct = result.requestedPullRequests.filter { result.directlyRequestedIDs.contains($0.id) }
         return Inbox.build(
-            reviewRequested: r.pullRequests,
-            userReviewRequested: d.pullRequests,
-            authored: a.pullRequests,
-            viewerLogin: a.viewerLogin,
-            apiUsage: Self.apiUsage(of: [r, d, a])
+            reviewRequested: result.requestedPullRequests,
+            userReviewRequested: direct,
+            authored: result.authoredPullRequests,
+            viewerLogin: result.viewerLogin,
+            apiUsage: Self.apiUsage(of: result)
+        )
+    }
+
+    static func apiUsage(of result: GitHubClient.InboxSearchResult) -> APIUsage? {
+        guard let limit = result.rateLimit else { return nil }
+        return APIUsage(
+            limit: limit.limit,
+            remaining: limit.remaining,
+            resetAt: limit.resetAt,
+            lastRefreshCost: result.cost,
+            lastRefreshRequests: result.requests
         )
     }
 
