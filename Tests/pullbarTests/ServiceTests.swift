@@ -3,34 +3,35 @@ import XCTest
 @testable import pullbar
 
 final class InboxServiceTests: XCTestCase {
-    /// Answers each of the three inbox searches with its own pull requests.
+    /// Answers the three aliases in the combined inbox query.
     private func installInbox() {
         StubGitHub.install { request in
-            let q = request.variables["q"] as? String ?? ""
-            if q.hasSuffix(" user-review-requested:@me") {
-                return (200, searchResponse(viewer: "direct-viewer", nodes: [prNode(id: "direct")]))
+            func search(_ nodes: [Any]) -> [String: Any] {
+                ["issueCount": nodes.count, "pageInfo": ["hasNextPage": false, "endCursor": NSNull()], "nodes": nodes]
             }
-            if q.hasSuffix(" review-requested:@me") {
-                return (200, searchResponse(viewer: "requested-viewer", nodes: [prNode(id: "direct"), prNode(id: "team")]))
-            }
-            if q.hasSuffix(" author:@me") {
-                return (200, searchResponse(viewer: "octocat", nodes: [prNode(id: "mine", isDraft: true)]))
-            }
-            return (500, "unexpected query \(q)")
+            return (200, ["data": [
+                "viewer": ["login": "octocat"],
+                "rateLimit": ["limit": 5000, "remaining": 4998, "used": 2, "cost": 2, "resetAt": "2026-03-10T14:05:00Z"],
+                "requested": search([prNode(id: "direct"), prNode(id: "team")]),
+                "direct": search([["id": "direct"]]),
+                "authored": search([prNode(id: "mine", isDraft: true)]),
+            ]])
         }
     }
 
-    func testFetchRunsTheThreeInboxSearches() async throws {
+    func testFetchRunsTheThreeInboxSearchesInOneRequest() async throws {
         installInbox()
         let service = InboxService(client: GitHubClient(token: "t", session: StubGitHub.session()))
         _ = try await service.fetch(window: .all)
 
-        let queries = StubGitHub.requests.compactMap { $0.variables["q"] as? String }.sorted()
-        XCTAssertEqual(queries, [
-            "is:pr is:open archived:false sort:updated-desc author:@me",
-            "is:pr is:open archived:false sort:updated-desc review-requested:@me",
-            "is:pr is:open archived:false sort:updated-desc user-review-requested:@me",
-        ])
+        XCTAssertEqual(StubGitHub.requests.count, 1)
+        let request = try XCTUnwrap(StubGitHub.requests.first)
+        XCTAssertTrue(request.query.contains("requested: search"))
+        XCTAssertTrue(request.query.contains("direct: search"))
+        XCTAssertTrue(request.query.contains("authored: search"))
+        XCTAssertEqual(request.variables["requestedQuery"] as? String, "is:pr is:open archived:false sort:updated-desc review-requested:@me")
+        XCTAssertEqual(request.variables["directQuery"] as? String, "is:pr is:open archived:false sort:updated-desc user-review-requested:@me")
+        XCTAssertEqual(request.variables["authoredQuery"] as? String, "is:pr is:open archived:false sort:updated-desc author:@me")
     }
 
     func testFetchAddsTheUpdatedFilter() async throws {
@@ -38,8 +39,9 @@ final class InboxServiceTests: XCTestCase {
         let service = InboxService(client: GitHubClient(token: "t", session: StubGitHub.session()))
         _ = try await service.fetch(window: .week)
         let qualifier = try XCTUnwrap(UpdatedWindow.week.searchQualifier)
-        for request in StubGitHub.requests {
-            let q = request.variables["q"] as? String ?? ""
+        let request = try XCTUnwrap(StubGitHub.requests.first)
+        for key in ["requestedQuery", "directQuery", "authoredQuery"] {
+            let q = request.variables[key] as? String ?? ""
             XCTAssertTrue(q.contains(" \(qualifier) "), q)
         }
     }
@@ -56,10 +58,7 @@ final class InboxServiceTests: XCTestCase {
     }
 
     func testFetchFailsWhenAnySearchFails() async {
-        StubGitHub.install { request in
-            let q = request.variables["q"] as? String ?? ""
-            return q.hasSuffix("author:@me") ? (401, "no") : (200, searchResponse(nodes: []))
-        }
+        StubGitHub.install { _ in (401, "no") }
         let service = InboxService(client: GitHubClient(token: "t", session: StubGitHub.session()))
         do {
             _ = try await service.fetch(window: .all)

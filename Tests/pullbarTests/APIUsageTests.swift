@@ -68,6 +68,30 @@ final class RateLimitClientTests: XCTestCase {
         await assertRateLimited(resetAt: nil)
     }
 
+    func testHTTP429UsesRetryAfterHTTPDate() async {
+        StubGitHub.install(headers: ["Retry-After": "Tue, 10 Mar 2026 14:05:00 GMT"]) { _ in
+            (429, "slow down")
+        }
+        await assertRateLimited(resetAt: resetDate)
+    }
+
+    func testHTTP403UsesRetryAfterEvenWhenBudgetRemains() async {
+        let startedAt = Date()
+        StubGitHub.install(headers: ["x-ratelimit-remaining": "4000", "Retry-After": "60"]) { _ in
+            (403, "secondary rate limit")
+        }
+        do {
+            _ = try await client().searchPullRequests("q")
+            XCTFail("expected a secondary rate-limit error")
+        } catch GitHubError.rateLimited(let resetAt) {
+            let retryDelay = try? XCTUnwrap(resetAt).timeIntervalSince(startedAt)
+            XCTAssertGreaterThanOrEqual(retryDelay ?? 0, 59)
+            XCTAssertLessThanOrEqual(retryDelay ?? .infinity, 61)
+        } catch {
+            XCTFail("expected a rate-limit error, got \(error)")
+        }
+    }
+
     func testForbiddenForOtherReasonsIsAnHTTPError() async {
         StubGitHub.install(headers: ["x-ratelimit-remaining": "4000"]) { _ in (403, "forbidden") }
         do {
@@ -83,6 +107,16 @@ final class RateLimitClientTests: XCTestCase {
     func testGraphQLRateLimitedError() async {
         StubGitHub.install { _ in (200, ["data": NSNull(), "errors": [["type": "RATE_LIMITED", "message": "API rate limit exceeded"]]]) }
         await assertRateLimited(resetAt: nil)
+    }
+
+    func testGraphQLRateLimitedErrorUsesResetFromPartialData() async {
+        StubGitHub.install { _ in
+            (200, [
+                "data": ["rateLimit": rateLimitJSON(remaining: 0)],
+                "errors": [["type": "RATE_LIMITED", "message": "API rate limit exceeded"]],
+            ])
+        }
+        await assertRateLimited(resetAt: resetDate)
     }
 
     func testRateLimitMessages() {
@@ -130,13 +164,19 @@ final class APIUsageServiceTests: XCTestCase {
 
     func testFetchCarriesTheUsageIntoTheInbox() async throws {
         StubGitHub.install { _ in
-            var page = searchResponse(nodes: [])
-            page["data"] = (page["data"] as! [String: Any]).merging(["rateLimit": rateLimitJSON(remaining: 4373)]) { $1 }
-            return (200, page)
+            func emptySearch() -> [String: Any] {
+                ["issueCount": 0, "pageInfo": ["hasNextPage": false, "endCursor": NSNull()], "nodes": [Any]()]
+            }
+            return (200, ["data": [
+                "viewer": ["login": "octocat"],
+                "rateLimit": rateLimitJSON(remaining: 4373, cost: 2),
+                "requested": emptySearch(), "direct": emptySearch(), "authored": emptySearch(),
+            ]])
         }
         let inbox = try await InboxService(client: GitHubClient(token: "t", session: StubGitHub.session())).fetch(window: .all)
         XCTAssertEqual(inbox.apiUsage?.used, 627)
-        XCTAssertEqual(inbox.apiUsage?.lastRefreshRequests, 3, "three searches, one page each")
+        XCTAssertEqual(inbox.apiUsage?.lastRefreshRequests, 1, "three aliased searches share one request")
+        XCTAssertEqual(inbox.apiUsage?.lastRefreshCost, 2)
     }
 }
 
@@ -168,7 +208,7 @@ final class APIUsageMenuTests: XCTestCase {
         app.inboxForTesting = inbox(low)
         app.rebuildMenuForTesting()
         let title = try XCTUnwrap(try refreshLine(app).attributedTitle)
-        let range = (title.string as NSString).range(of: "API budget low: ")
+        let range = (title.string as NSString).range(of: "API budget low — refreshing less often: ")
         XCTAssertNotEqual(range.location, NSNotFound)
         XCTAssertEqual(title.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor, .systemOrange)
 

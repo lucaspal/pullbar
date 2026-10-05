@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var token: String?
     private var inbox: Inbox?
     private var lastError: Error?
+    private var rateLimitBlockedUntil: Date?
     private var isRefreshing = false
     private var menuIsOpen = false
     /// The menu bar title changed while the menu was open; apply it on close.
@@ -69,10 +70,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func scheduleTimer() {
         timer?.invalidate()
-        let timer = Timer(timeInterval: Settings.shared.refreshInterval, repeats: true) { [weak self] _ in
+        let now = Date()
+        let isWaitingForReset = rateLimitBlockedUntil.map { $0 > now } ?? false
+        let isLowBudget = inbox?.apiUsage.map { $0.isLow && $0.resetAt > now } ?? false
+        let interval: TimeInterval
+        if let blockedUntil = rateLimitBlockedUntil, isWaitingForReset {
+            // Leave a small margin so timer rounding cannot fire before reset.
+            interval = blockedUntil.timeIntervalSince(now) + 1
+        } else {
+            rateLimitBlockedUntil = nil
+            interval = RefreshPolicy.interval(
+                configured: Settings.shared.refreshInterval,
+                usage: inbox?.apiUsage,
+                now: now
+            )
+        }
+        let timer = Timer(timeInterval: interval, repeats: !isWaitingForReset && !isLowBudget) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
-        timer.tolerance = 10
+        timer.tolerance = isWaitingForReset || isLowBudget ? 0 : 10
         // Common modes include event tracking, so refreshes keep happening
         // while the menu is open instead of pausing until it closes.
         RunLoop.main.add(timer, forMode: .common)
@@ -86,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             loadFixture(fixtureURL)
             return
         }
-        guard !isRefreshing, let token else { return }
+        guard !isRefreshing, RefreshPolicy.mayRefresh(blockedUntil: rateLimitBlockedUntil), let token else { return }
         isRefreshing = true
         let service = InboxService(client: GitHubClient(token: token))
         let window = Settings.shared.updatedWindow
@@ -95,10 +111,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let result = try await service.fetch(window: window)
                 self.inbox = result
                 self.lastError = nil
+                self.rateLimitBlockedUntil = nil
             } catch {
                 self.lastError = error
+                if case GitHubError.rateLimited(let resetAt) = error {
+                    self.rateLimitBlockedUntil = RefreshPolicy.retryDate(resetAt: resetAt)
+                }
             }
             self.isRefreshing = false
+            self.scheduleTimer()
             self.render()
         }
     }
@@ -169,7 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// than 10% is left.
     static func apiUsageText(_ usage: APIUsage) -> String {
         let time = usage.resetAt.formatted(date: .omitted, time: .shortened)
-        return (usage.isLow ? "API budget low: " : "API ")
+        let prefix = usage.isLow ? "API budget low — refreshing less often: " : "API "
+        return prefix
             + "\(usage.used.formatted()) of \(usage.limit.formatted()) used, resets \(time)"
     }
 
@@ -186,7 +208,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         menuIsOpen = true
-        refresh()
+        if RefreshPolicy.shouldRefreshOnMenuOpen(
+            lastSuccess: inbox?.fetchedAt,
+            lastError: lastError
+        ) {
+            refresh()
+        }
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -492,6 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         token = entered
         lastError = nil
+        rateLimitBlockedUntil = nil
         refresh()
     }
 
@@ -645,6 +673,10 @@ extension AppDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     }
     var timerForTesting: Timer? { timer }
+    var rateLimitBlockedUntilForTesting: Date? {
+        get { rateLimitBlockedUntil }
+        set { rateLimitBlockedUntil = newValue }
+    }
     func scheduleTimerForTesting() { scheduleTimer() }
     func removeStatusItemForTesting() {
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }

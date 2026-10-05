@@ -128,7 +128,9 @@ pull-request results on disk.
 
 - **Open inbox on GitHub** opens `https://github.com/pulls/inbox` (**⌘O**).
 - **Refresh now** starts a new fetch (**⌘R**). Opening the menu also starts a
-  refresh; an in-progress fetch is not duplicated.
+  refresh when the last successful result is at least 30 seconds old. Failed
+  refreshes are retried when the menu opens; an in-progress fetch is not
+  duplicated.
 - **Updated** filters searches to **Last week**, **Last month** (the default),
   **Last 3 months**, or **Any time**. Changing it refreshes the inbox.
 - **Refresh every** schedules automatic refreshes every 1, 2 (the default), 5,
@@ -141,11 +143,17 @@ to update credentials.
 
 ## Data-fetching limits and details
 
-Each refresh starts the three searches concurrently. Each search requests 100
-items per page, the most GitHub allows and no more expensive than 50, and
-reads at most four pages, so a section source is limited to 400 pull requests
-per refresh. Search queries include `is:pr`, `is:open`,
-`archived:false`, `sort:updated-desc`, and the selected updated-time filter.
+Each refresh sends the three inbox searches as GraphQL aliases in one request
+per page. Each search requests 100 items per page, the most GitHub allows and
+no more expensive than 50, and reads at most four pages, so a search is limited
+to 400 pull requests per refresh. Searches that have finished paging are
+omitted from later requests. Below 10% API budget remaining, automatic refresh
+waits up to 15 minutes or until the budget resets, if sooner. A rate-limit
+response pauses refreshes until GitHub's reset time, using `Retry-After` when
+provided.
+
+Search queries include `is:pr`, `is:open`, `archived:false`,
+`sort:updated-desc`, and the selected updated-time filter.
 
 For each returned pull request, the app reads the latest commit's
 `statusCheckRollup` with GitHub's per-state counts of check runs and status
@@ -183,7 +191,7 @@ line, same format), so feature pull requests don't all edit the same list.
 | `Sources/pullbar/PullbarApp.swift` | Application entry point and menu-bar-only activation policy. |
 | `Sources/pullbar/AppDelegate.swift` | Menu, status title, refresh scheduling, and menu actions. |
 | `Sources/pullbar/GitHubClient.swift` | GitHub GraphQL client and pagination. |
-| `Sources/pullbar/InboxService.swift` | The three concurrent searches. |
+| `Sources/pullbar/InboxService.swift` | The three aliased inbox searches. |
 | `Sources/pullbar/Models.swift` | Pull-request models and section classification. |
 | `Sources/pullbar/TokenProvider.swift` | Keychain, GitHub CLI, and token-prompt lookup. |
 | `Sources/pullbar/Keychain.swift` | Login-Keychain storage. |

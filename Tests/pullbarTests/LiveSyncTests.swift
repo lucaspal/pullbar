@@ -87,4 +87,28 @@ final class RefreshTimerTests: XCTestCase {
         }
         XCTAssertGreaterThan(timer.fireDate, firstFire, "the timer fired during event tracking")
     }
+
+    func testLowBudgetStretchesTheAutomaticTimerToFifteenMinutes() throws {
+        let app = AppDelegate()
+        app.inboxForTesting = Inbox.build(
+            reviewRequested: [], userReviewRequested: [], authored: [], viewerLogin: "octocat",
+            apiUsage: APIUsage(
+                limit: 5000, remaining: 499, resetAt: Date().addingTimeInterval(3600),
+                lastRefreshCost: 2, lastRefreshRequests: 1
+            )
+        )
+        app.scheduleTimerForTesting()
+        let timer = try XCTUnwrap(app.timerForTesting)
+        defer { timer.invalidate() }
+        XCTAssertGreaterThanOrEqual(timer.fireDate.timeIntervalSinceNow, 899)
+    }
+
+    func testRateLimitTimerWaitsUntilAfterTheReset() throws {
+        let app = AppDelegate()
+        app.rateLimitBlockedUntilForTesting = Date().addingTimeInterval(120)
+        app.scheduleTimerForTesting()
+        let timer = try XCTUnwrap(app.timerForTesting)
+        defer { timer.invalidate() }
+        XCTAssertGreaterThanOrEqual(timer.fireDate.timeIntervalSinceNow, 120)
+    }
 }
