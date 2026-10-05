@@ -317,4 +317,11 @@ jobs:
 
       - name: Delete the unverified draft
         if: failure()
-        run: gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+        run: |
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            --jq 'select(.draft == true) | .id' 2>/dev/null || true)"
+          if [ -n "$release_id" ]; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$release_id"
+          else
+            echo "No draft release to delete; leaving any published release untouched."
+          fi

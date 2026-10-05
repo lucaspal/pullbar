@@ -57,12 +57,16 @@ if ! grep -qxF "tag $TAG_PATTERN" <<< "$policies"; then
     gh api -X POST "repos/$REPO/environments/$ENV/deployment-branch-policies" \
         -f name="$TAG_PATTERN" -f type=tag --silent
 fi
+policies="$(gh api "repos/$REPO/environments/$ENV/deployment-branch-policies" \
+    --jq '.branch_policies[] | "\(.type) \(.name)"')"
 others="$(grep -vxF "tag $TAG_PATTERN" <<< "$policies" || true)"
-echo "Environment '$ENV' accepts runs for tags matching $TAG_PATTERN."
 if [ -n "$others" ]; then
-    echo "warning: it also accepts these, which can read the signing secrets:" >&2
+    echo "error: environment '$ENV' has deployment rules beyond 'tag $TAG_PATTERN'; refusing to configure signing secrets." >&2
+    echo "Remove these rules from the repository's Settings > Environments > $ENV, then rerun this script:" >&2
     while IFS= read -r line; do echo "  $line" >&2; done <<< "$others"
+    exit 1
 fi
+echo "Environment '$ENV' accepts runs for tags matching $TAG_PATTERN."
 
 # 3. Secrets with the same names at repository level are readable by every
 #    workflow run, which defeats the environment.
