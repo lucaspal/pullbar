@@ -3,7 +3,7 @@ Sources/pullbar/InboxService.swift@@s/\.min\(by: \{ \$0\.remaining < \$1\.remain
 Sources/pullbar/GitHubClient.swift@@s/            cost \+= other\.cost\n//@@refresh cost not counted
 Sources/pullbar/GitHubClient.swift@@s/            requests \+= other\.requests\n//@@requests not counted
 Sources/pullbar/GitHubClient.swift@@s/"x-ratelimit-remaining"\) == "0"/"x-ratelimit-remaining") == "1"/@@HTTP rate limit not recognised
-Sources/pullbar/GitHubClient.swift@@s/\$0\.type == "RATE_LIMITED"/\$0.type == "RATE_LIMIT"/@@GraphQL rate limit not recognised
+Sources/pullbar/GitHubClient.swift@@s/\$0\["type"\] as\? String == "RATE_LIMITED"/\$0["type"] as? String == "RATE_LIMIT"/@@GraphQL rate limit not recognised
 Sources/pullbar/AppDelegate.swift@@s/usage\.isLow \? \.systemOrange : \.secondaryLabelColor/usage.isLow ? .secondaryLabelColor : .secondaryLabelColor/@@low budget not orange
 Sources/pullbar/AppDelegate.swift@@s/let when = age < 1 \?/let when = age < 0 ?/@@just fetched reads in 0 seconds
 Sources/pullbar/AppDelegate.swift@@s/if let usage = inbox\.apiUsage, usage\.isLow \{/if let usage = inbox.apiUsage, usage.isLow, false {/@@low budget missing from the menu bar tooltip

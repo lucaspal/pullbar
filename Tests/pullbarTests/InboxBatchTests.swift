@@ -49,7 +49,7 @@ final class InboxBatchTests: XCTestCase {
         XCTAssertTrue(request.query.contains("requested: search"))
         XCTAssertTrue(request.query.contains("direct: search"))
         XCTAssertTrue(request.query.contains("authored: search"))
-        XCTAssertTrue(request.query.contains("first: 100"))
+        XCTAssertTrue(request.query.contains("requested: search(query: $requestedQuery, type: ISSUE, first: 100, after: $requestedAfter)"))
         XCTAssertEqual(inbox.pullRequests(in: .needsYourReview).map(\.id), ["direct"])
         XCTAssertEqual(inbox.pullRequests(in: .needsTeamsReview).map(\.id), ["team"])
         XCTAssertEqual(inbox.pullRequests(in: .yourDrafts).map(\.id), ["draft"])

@@ -44,7 +44,7 @@ MUTATIONS=(
     "Sources/pullbar/GitHubClient.swift@@s/\?\? \"ghost\"/?? \"\"/@@missing author not shown as ghost"
     "Sources/pullbar/GitHubClient.swift@@s/\"is:pr \\\\\(query\)\"/\"\\\\(query)\"/@@searches include issues"
     "Sources/pullbar/GitHubClient.swift@@s/\"Bearer \\\\\(token\)\"/\"token \\\\(token)\"/@@wrong authorization header"
-    "Sources/pullbar/InboxService.swift@@s/user-review-requested:\@me/review-requested:\@me/@@direct review requests not searched"
+    "Sources/pullbar/GitHubClient.swift@@s/user-review-requested:\@me/review-requested:\@me/@@direct review requests not searched"
     "Sources/pullbar/InboxService.swift@@s/\"archived:false\", //@@archived repositories included"
     "Sources/pullbar/Keychain.swift@@s/return token\.isEmpty \? nil : token/return token/@@empty token treated as a token"
     "Sources/pullbar/Keychain.swift@@s/deleteToken\(service: service\)\n        var attrs/var attrs/@@writing over an existing token fails"
