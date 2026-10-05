@@ -8,6 +8,16 @@ name: Build
 # Actions are pinned to full commit SHAs (with the version in a comment), so a
 # moved or hijacked tag upstream cannot change the code that runs here.
 # Dependabot updates the pins.
+#
+# Release builds are signed with a Developer ID and notarized when the
+# "release" environment has all five of these secrets, ad-hoc signed when it
+# has none (macOS Gatekeeper then warns users on first launch), and fail when
+# it has only some:
+#   MACOS_CERTIFICATE           Developer ID Application certificate, .p12, base64
+#   MACOS_CERTIFICATE_PASSWORD  password of that .p12
+#   NOTARY_API_KEY              App Store Connect API key, contents of the .p8
+#   NOTARY_KEY_ID               that key's ID
+#   NOTARY_ISSUER_ID            the issuer ID shown with the key
 on:
   push:
     branches: [main]
@@ -58,6 +68,18 @@ jobs:
 
   build:
     runs-on: macos-15
+    # The signing secrets live in the "release" environment, which accepts
+    # only v* tags (scripts/setup-release-environment.sh). Other builds use no
+    # environment, so they cannot read the secrets even if this file is edited.
+    # Only admins can push v* tags (scripts/protect-release-tags.sh), and
+    # "Check release tag" stops the job before any step that is given a
+    # secret unless the tag is on its version's release commit.
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || '' }}
+    # What the verify job must find in the published app.
+    outputs:
+      signed: ${{ steps.signing.outputs.sign }}
+      notarized: ${{ steps.signing.outputs.notarize }}
+      team: ${{ steps.certificate.outputs.team }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,14 +94,111 @@ jobs:
           version="$(scripts/check-release-tag.sh "$GITHUB_REF_NAME" "$GITHUB_SHA" origin/main)"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      # Secrets are passed only to the steps that need them. Pull requests
+      # from forks never receive secrets, so they always build ad hoc.
+      - name: Check for signing secrets
+        id: signing
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        # All or nothing: with none of the five secrets the release is ad-hoc
+        # signed; with all five it is signed and notarized. Anything in between
+        # is a half-finished setup, and the release fails here, before anything
+        # is built or published, instead of shipping an app Gatekeeper rejects.
+        run: |
+          set=()
+          missing=()
+          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD NOTARY_API_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            if [ -n "${!name}" ]; then set+=("$name"); else missing+=("$name"); fi
+          done
+          if [ ${#set[@]} -eq 0 ]; then
+            echo "::notice::No signing secrets, so this release is ad-hoc signed. macOS Gatekeeper will warn users on first launch."
+            sign=false
+          elif [ ${#missing[@]} -eq 0 ]; then
+            sign=true
+          else
+            echo "::error::Signing is only partly set up. Missing or empty in the release environment: ${missing[*]}. Set them all (scripts/setup-release-environment.sh), or remove them all for an ad-hoc release."
+            exit 1
+          fi
+          echo "sign=$sign" >> "$GITHUB_OUTPUT"
+          echo "notarize=$sign" >> "$GITHUB_OUTPUT"
+
+      - name: Import Developer ID certificate
+        id: certificate
+        if: steps.signing.outputs.sign == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          # Put the new keychain first in the search list, keeping the others.
+          keychains=("$keychain")
+          while IFS= read -r line; do
+            line="${line//\"/}"
+            keychains+=("${line#"${line%%[![:space:]]*}"}")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychains[@]}"
+
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -n 1)"
+          if [ -z "$identity" ]; then
+            echo "::error::MACOS_CERTIFICATE does not contain a Developer ID Application identity."
+            exit 1
+          fi
+          echo "Signing as: $identity"
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "team=$(printf '%s' "$identity" | sed -n 's/.*(\([A-Z0-9]*\))$/\1/p')" >> "$GITHUB_OUTPUT"
+
       - name: Show toolchain
         run: swift --version
 
+      # Signs ad hoc unless the previous step set SIGN_IDENTITY.
       - name: Build app bundle
         run: make app
 
       - name: Verify code signature
-        run: codesign --verify --verbose build/pullbar.app
+        run: codesign --verify --strict --verbose=2 build/pullbar.app
+
+      - name: Notarize and staple
+        if: steps.signing.outputs.notarize == 'true'
+        env:
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          key="$RUNNER_TEMP/notary-key.p8"
+          printf '%s\n' "$NOTARY_API_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+
+          ditto -c -k --keepParent build/pullbar.app "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" "${auth[@]}" \
+            --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json" || true
+          status="$(plutil -extract status raw "$RUNNER_TEMP/notary.json" 2>/dev/null || echo "no result")"
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::Notarization finished with status: $status"
+            cat "$RUNNER_TEMP/notary.json" || true
+            id="$(plutil -extract id raw "$RUNNER_TEMP/notary.json" 2>/dev/null || true)"
+            if [ -n "$id" ]; then xcrun notarytool log "$id" "${auth[@]}" || true; fi
+            exit 1
+          fi
+
+          xcrun stapler staple build/pullbar.app
+          xcrun stapler validate build/pullbar.app
+          spctl --assess --type execute --verbose=2 build/pullbar.app
 
       # Named <name>-<version>-<platform>.zip, the pattern Homebrew tap sync
       # scripts look for. Apple Silicon only.
@@ -95,6 +214,10 @@ jobs:
           path: build/pullbar-*.zip
           if-no-files-found: error
           retention-days: 1
+
+      - name: Remove signing keychain
+        if: always() && env.SIGNING_KEYCHAIN != ''
+        run: security delete-keychain "$SIGNING_KEYCHAIN"
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -118,7 +241,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: scripts/release-notes.sh "$GITHUB_REF_NAME" > release-notes.md
 
-      - name: Publish release
+      # A draft is not visible to users or to Homebrew tap syncs. The verify
+      # job publishes it only after checking the uploaded app.
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -128,4 +253,75 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "pullbar $GITHUB_REF_NAME" \
             --notes-file release-notes.md \
+            --draft \
             --verify-tag $prerelease
+
+  # Checks the app as users will get it: downloaded from the release, not the
+  # copy the build job signed. It proves the signature (and notarization, when
+  # expected) instead of trusting that the signing steps worked, then
+  # publishes the release. On any failure the draft is deleted; the tag stays.
+  verify:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, release]
+    runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECT_SIGNED: ${{ needs.build.outputs.signed }}
+      EXPECT_NOTARIZED: ${{ needs.build.outputs.notarized }}
+      EXPECT_TEAM: ${{ needs.build.outputs.team }}
+    steps:
+      - name: Download the release zip
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern "pullbar-$version-darwin-arm64.zip" --dir dist
+          ditto -x -k "dist/pullbar-$version-darwin-arm64.zip" dist/app
+          echo "APP=dist/app/pullbar.app" >> "$GITHUB_ENV"
+
+      - name: Check signature, version, and architecture
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          details="$(codesign -dvv "$APP" 2>&1)"
+
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          [ "$version" = "${GITHUB_REF_NAME#v}" ] || fail "App version $version does not match tag $GITHUB_REF_NAME."
+
+          archs="$(lipo -archs "$APP/Contents/MacOS/pullbar")"
+          [ "$archs" = "arm64" ] || fail "Expected an arm64 binary, found: $archs"
+
+          if [ "$EXPECT_SIGNED" = "true" ]; then
+            grep -q "^Authority=Developer ID Application: " <<< "$details" || fail "Not signed with a Developer ID Application certificate."
+            grep -qx "TeamIdentifier=$EXPECT_TEAM" <<< "$details" || fail "Team ID is not the signing identity's team ($EXPECT_TEAM)."
+            grep -q "flags=.*(runtime)" <<< "$details" || fail "Hardened runtime is not enabled."
+            grep -q "^Timestamp=" <<< "$details" || fail "No secure timestamp."
+            echo "Signed with Developer ID, team $EXPECT_TEAM, hardened runtime, timestamped."
+          else
+            grep -qx "Signature=adhoc" <<< "$details" || fail "Expected an ad-hoc signature (no signing secrets), found another."
+            echo "::notice::Ad-hoc signed: macOS Gatekeeper will warn users on first launch."
+          fi
+
+          if [ "$EXPECT_NOTARIZED" = "true" ]; then
+            xcrun stapler validate "$APP"
+            assessment="$(spctl --assess --type execute --verbose=2 "$APP" 2>&1)" || fail "Gatekeeper rejected the app: $assessment"
+            grep -q "source=Notarized Developer ID" <<< "$assessment" || fail "Gatekeeper did not report a notarized app: $assessment"
+            echo "Notarized and stapled; Gatekeeper accepts it."
+          fi
+
+      - name: Publish release
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: Delete the unverified draft
+        if: failure()
+        run: |
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+            --jq 'select(.draft == true) | .id' 2>/dev/null || true)"
+          if [ -n "$release_id" ]; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$release_id"
+          else
+            echo "No draft release to delete; leaving any published release untouched."
+          fi

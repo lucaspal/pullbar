@@ -71,6 +71,7 @@ macOS may ask you to confirm its first launch.
 | `make mutation-test` | Checks that the tests catch deliberate bugs. |
 | `make app` | Creates the ad-hoc-signed `build/pullbar.app` bundle. |
 | `make app VERSION=1.2.3` | Same, with `1.2.3` as the app version (used by the release workflow). |
+| `make app SIGN_IDENTITY="Developer ID Application: …"` | Signs with that identity, the hardened runtime, and a secure timestamp instead of ad hoc. |
 | `make install` | Creates the bundle, copies it to `~/Applications`, and opens it. |
 | `make clean` | Removes `.build` and `build`. |
 
@@ -199,6 +200,7 @@ line, same format), so feature pull requests don't all edit the same list.
 | `scripts/changelog.sh` | Edits `CHANGELOG.md` and the README changelog section. |
 | `scripts/check-release-tag.sh` | Release workflow check: the tag is on the release commit for its version. |
 | `scripts/protect-release-tags.sh` | One-time setup: only admins may push `v*` tags. |
+| `scripts/setup-release-environment.sh` | Creates the tag-only `release` environment and stores the signing secrets in it. |
 | `.github/workflows/build.yml` | CI build and tag-triggered GitHub release. |
 | `CHANGELOG.md` | Summary of changes per release. |
 | `LICENSE` | MIT license terms. |
@@ -218,8 +220,9 @@ full notes (one entry per merged pull request) and a downloadable
 Releases are built only from `main`. `scripts/create-release.sh v1.2.0`
 prepares the changelog and this section on a release branch; after that
 branch is merged, pushing the `v1.2.0` tag on the merge commit makes the
-**Build** workflow build, sign, and publish the release. See `AGENTS.md` for
-the steps.
+**Build** workflow build and sign the release as a draft, then check the
+downloaded app's signature before publishing it. See `AGENTS.md` for the
+steps.
 
 Two safeguards keep releases to that process:
 
@@ -229,6 +232,50 @@ Two safeguards keep releases to that process:
 - Tag rules are separate from the rules protecting `main`. Run
   `scripts/protect-release-tags.sh` once (it needs admin rights) so only
   repository admins can create, move, or delete `v*` tags.
+
+### Signing and notarization (optional)
+
+Release builds are signed with a Developer ID and notarized by Apple when the
+repository's `release` environment has the secrets below. Without them, the
+signing steps are skipped and the release is ad-hoc signed: it works, but
+macOS Gatekeeper warns users on first launch. Each fork signs with its own
+secrets, so every maintainer ships under their own Developer ID.
+
+The secrets live in a GitHub environment, not at repository level. The
+`release` environment accepts only runs for `v*` tags, so the secrets reach
+release builds and nothing else. A workflow edited on a branch or in a pull
+request cannot read them. The two safeguards above narrow that further: only
+admins can push `v*` tags, and a tag builds only on its release commit.
+
+| Secret | Value |
+|---|---|
+| `MACOS_CERTIFICATE` | Your **Developer ID Application** certificate with its private key, exported from Keychain Access as a `.p12`, base64-encoded. |
+| `MACOS_CERTIFICATE_PASSWORD` | The password you gave the `.p12` when exporting it. |
+| `NOTARY_API_KEY` | An App Store Connect API key (Users and Access > Integrations > Team Keys, role Developer): the contents of the downloaded `.p8` file. |
+| `NOTARY_KEY_ID` | The ID of that key. |
+| `NOTARY_ISSUER_ID` | The issuer ID shown above the list of keys. |
+
+Set everything up by running this in a terminal:
+
+```sh
+scripts/setup-release-environment.sh
+```
+
+It first runs `scripts/protect-release-tags.sh`, so only admins can push
+`v*` tags. Next it creates the `release` environment, limits it to `v*` tags,
+and warns if any of these secrets also exist at repository level, where every
+run could read them. It then asks for each secret and stores it with `gh secret set`,
+which reads the value without showing it. Running it again is safe, and it
+asks before replacing a secret. Without a terminal (for example when a coding
+agent runs it), it only sets up the environment and prints the `gh secret
+set --env release` commands for you to run.
+
+It is all or nothing. With none of the five secrets, releases are ad-hoc
+signed. With all five, they are signed and notarized. With only some of them,
+the release **fails** before anything is built or published, and the run names
+the missing secrets, so a half-finished setup never ships an app that
+Gatekeeper rejects. Pull requests from forks never receive secrets, so they
+always build ad hoc.
 
 <!-- changelog:start -->
 
@@ -245,6 +292,12 @@ Two safeguards keep releases to that process:
   tag, and the README changelog section. No dependencies beyond git, `gh`,
   bash, and awk.
 - `make app VERSION=X.Y.Z` stamps the version into the app bundle.
+- Release builds are signed with a Developer ID and notarized when the
+  repository's `release` environment has the signing secrets, and ad-hoc
+  signed otherwise.
+- Each release is created as a draft and published only after a verify job
+  has checked the downloaded app's signature (and notarization, when
+  configured).
 - `CHANGELOG.md`, with the two newest entries repeated at the end of the
   README.
 - MIT license ([#3](https://github.com/lucaspal/Pullbar/pull/3)).

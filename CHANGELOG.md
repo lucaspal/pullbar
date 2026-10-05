@@ -25,6 +25,12 @@ describes the release steps. Keep **Unreleased** as the first entry.
   tag, and the README changelog section. No dependencies beyond git, `gh`,
   bash, and awk.
 - `make app VERSION=X.Y.Z` stamps the version into the app bundle.
+- Release builds are signed with a Developer ID and notarized when the
+  repository's `release` environment has the signing secrets, and ad-hoc
+  signed otherwise.
+- Each release is created as a draft and published only after a verify job
+  has checked the downloaded app's signature (and notarization, when
+  configured).
 - `CHANGELOG.md`, with the two newest entries repeated at the end of the
   README.
 - MIT license ([#3](https://github.com/lucaspal/Pullbar/pull/3)).
