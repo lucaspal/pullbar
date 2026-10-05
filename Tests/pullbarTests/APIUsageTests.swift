@@ -75,6 +75,23 @@ final class RateLimitClientTests: XCTestCase {
         await assertRateLimited(resetAt: resetDate)
     }
 
+    func testHTTP403UsesRetryAfterEvenWhenBudgetRemains() async {
+        let startedAt = Date()
+        StubGitHub.install(headers: ["x-ratelimit-remaining": "4000", "Retry-After": "60"]) { _ in
+            (403, "secondary rate limit")
+        }
+        do {
+            _ = try await client().searchPullRequests("q")
+            XCTFail("expected a secondary rate-limit error")
+        } catch GitHubError.rateLimited(let resetAt) {
+            let retryDelay = try? XCTUnwrap(resetAt).timeIntervalSince(startedAt)
+            XCTAssertGreaterThanOrEqual(retryDelay ?? 0, 59)
+            XCTAssertLessThanOrEqual(retryDelay ?? .infinity, 61)
+        } catch {
+            XCTFail("expected a rate-limit error, got \(error)")
+        }
+    }
+
     func testForbiddenForOtherReasonsIsAnHTTPError() async {
         StubGitHub.install(headers: ["x-ratelimit-remaining": "4000"]) { _ in (403, "forbidden") }
         do {

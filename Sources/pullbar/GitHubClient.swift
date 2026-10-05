@@ -328,14 +328,16 @@ final class GitHubClient: @unchecked Sendable {
         return payload
     }
 
-    /// When a response says the rate limit is used up (HTTP 403 or 429 with no
-    /// requests remaining), the time it resets; nil for any other response.
+    /// The retry time for an HTTP rate limit response; nil for other HTTP errors.
     static func rateLimitReset(_ http: HTTPURLResponse) -> Date?? {
-        guard [403, 429].contains(http.statusCode),
-              http.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0" || http.statusCode == 429
-        else { return nil }
-        if let retryAfter = http.value(forHTTPHeaderField: "Retry-After"),
-           let retryDate = Self.retryAfterDate(retryAfter) {
+        let retryAfter = http.value(forHTTPHeaderField: "Retry-After")
+        let isRateLimited = http.statusCode == 429 || (
+            http.statusCode == 403 && (
+                http.value(forHTTPHeaderField: "x-ratelimit-remaining") == "0" || retryAfter != nil
+            )
+        )
+        guard isRateLimited else { return nil }
+        if let retryAfter, let retryDate = Self.retryAfterDate(retryAfter) {
             return .some(retryDate)
         }
         let reset = http.value(forHTTPHeaderField: "x-ratelimit-reset").flatMap(TimeInterval.init)
