@@ -50,6 +50,41 @@ These details matter only if you change the script:
 - For a manual screenshot, Cmd+Shift+5 closes open menus. Use Cmd+Shift+4,
   press Space, then click the menu.
 
+## Setting up release signing (once per repository)
+
+Release builds are signed with a Developer ID and notarized when the
+repository's `release` environment holds the signing secrets, and ad-hoc
+signed otherwise (see "Signing and notarization" in the README). Each fork
+uses its own secrets and ships under its owner's Developer ID.
+
+1. Create the environment and empty placeholders for the secrets:
+
+   ```sh
+   scripts/setup-release-environment.sh --repo <owner>/<repo> --placeholders
+   ```
+
+   This needs admin rights on the repository. It lets only repository
+   admins push `v*` tags (`scripts/protect-release-tags.sh`), creates the
+   `release` environment, limits it to `v*` tags (so only release builds can
+   read the secrets), and creates any missing secret with an empty value. While all five are
+   empty, releases are ad-hoc signed. Once any of them is filled in, releases
+   fail until all five are, so never tag a release while the user is part
+   way through: check with `gh secret list --env release` that every secret
+   has been updated, or ask. Running it again is safe and never overwrites a secret.
+2. Tell the user to fill in the values, either by running
+   `scripts/setup-release-environment.sh` in their own terminal (it asks for
+   each one) or in the repository's Settings > Environments > release. The
+   README lists what each secret must contain.
+3. If the script warns that one of these secrets also exists at repository
+   level, tell the user: every workflow run can read those. Suggest deleting
+   them with the `gh secret delete` command it prints.
+4. After the next release, check the run log: "Import Developer ID
+   certificate" prints `Signing as: Developer ID Application: …`, and
+   "Notarize and staple" ends with `source=Notarized Developer ID`.
+
+Never ask for, read, paste, generate, or print the certificate, its
+password, or the API key yourself, and never store them anywhere else.
+
 ## Making a release
 
 Releases are built only from `main` and are started by pushing a semver tag
@@ -224,8 +259,16 @@ gh run watch <databaseId> --exit-status
 gh release view v1.2.3
 ```
 
-The release must have the `pullbar-1.2.3-darwin-arm64.zip` asset and notes for
-each pull request merged since the previous release.
+The run has three jobs: **build**, **release** (creates the release as a
+draft), and **verify**. Verify downloads the draft's zip and checks its
+signature, version, and architecture, plus notarization when the signing
+secrets are set. It publishes the release only if every check passes, and
+its log says what it proved, e.g. "Signed with Developer ID, team …". If
+verify fails, the draft is deleted and the tag is kept: stop, tell the user
+which check failed, and do not re-tag until the cause is fixed.
+
+The published release must have the `pullbar-1.2.3-darwin-arm64.zip` asset
+and notes for each pull request merged since the previous release.
 
 ### 7. Update the Homebrew tap (if it is set up)
 

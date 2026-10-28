@@ -3,6 +3,16 @@ BUILD_DIR := build
 APP := $(BUILD_DIR)/$(APP_NAME).app
 ## Optional: stamp CFBundleShortVersionString, e.g. `make app VERSION=1.2.3`
 VERSION ?=
+## Optional: sign with a real identity instead of ad hoc, e.g.
+## `make app SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"`. A real
+## identity also enables the hardened runtime and a secure timestamp, which
+## notarization requires.
+SIGN_IDENTITY ?= -
+ifeq ($(SIGN_IDENTITY),-)
+SIGN_FLAGS :=
+else
+SIGN_FLAGS := --options runtime --timestamp
+endif
 
 .PHONY: build run test mutation-test app install clean
 
@@ -16,7 +26,8 @@ build:
 run:
 	swift run -c release pullbar
 
-## Assemble a double-clickable, ad-hoc signed "$(APP_NAME).app" in build/
+## Assemble a double-clickable, signed "$(APP_NAME).app" in build/ (ad hoc unless
+## SIGN_IDENTITY is set)
 app: build $(APP_ICON)
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
@@ -28,7 +39,7 @@ endif
 	cp "$(APP_ICON)" "$(APP)/Contents/Resources/AppIcon.icns"
 	sh Packaging/stamp-build-info.sh "$(APP)/Contents/Info.plist"
 	echo -n "APPL????" > "$(APP)/Contents/PkgInfo"
-	codesign --force --sign - --identifier dev.pullbar.menubar "$(APP)"
+	codesign --force --sign "$(SIGN_IDENTITY)" $(SIGN_FLAGS) --identifier dev.pullbar.menubar "$(APP)"
 	@echo "Built $(APP)"
 
 $(APP_ICON): Packaging/AppIcon-1024.png Packaging/build-icon.sh
