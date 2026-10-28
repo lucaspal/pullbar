@@ -16,7 +16,8 @@ func makePR(
     reviewDecision: ReviewDecision? = nil,
     mergeable: Mergeable = .mergeable,
     checks: Checks? = nil,
-    commentCount: Int = 0
+    commentCount: Int = 0,
+    isInMergeQueue: Bool = false
 ) -> PullRequest {
     PullRequest(
         id: id,
@@ -30,7 +31,8 @@ func makePR(
         reviewDecision: reviewDecision,
         mergeable: mergeable,
         checks: checks,
-        commentCount: commentCount
+        commentCount: commentCount,
+        isInMergeQueue: isInMergeQueue
     )
 }
 

@@ -67,6 +67,26 @@ final class FixtureTests: XCTestCase {
         XCTAssertEqual(ready.commentCount, 12)
     }
 
+    @MainActor
+    func testQueuedFixtureAppearsInMenuAndTooltip() throws {
+        let url = try write("""
+        { "viewerLogin": "octocat", "authored": [
+          { "number": 8, "title": "Waiting in merge queue", "repository": "acme/api",
+            "author": "octocat", "updated": "1h", "isInMergeQueue": true }
+        ] }
+        """)
+        let app = AppDelegate()
+        app.inboxForTesting = try Fixture.load(from: url).inbox(now: referenceDate)
+        app.rebuildMenuForTesting()
+        let titles = app.menuForTesting.items.map { $0.attributedTitle?.string ?? $0.title }
+        let ready = try XCTUnwrap(titles.firstIndex(of: "READY TO MERGE  0"))
+        let queued = try XCTUnwrap(titles.firstIndex(of: "QUEUED  1"))
+        XCTAssertGreaterThan(queued, ready)
+        let row = try XCTUnwrap(app.menuForTesting.items.first { $0.representedObject as? URL == URL(string: "https://github.com/acme/api/pull/8") })
+        XCTAssertTrue(row.attributedTitle?.string.contains("● Queued") == true)
+        XCTAssertTrue(AppDelegate.statusText(inbox: app.inboxForTesting, error: nil)?.toolTip?.contains("Queued: 1") == true)
+    }
+
     func testInvalidValuesNameThePullRequestAndField() throws {
         let cases = [
             (#""updated": "3y""#, "updated must look like"),
@@ -94,7 +114,7 @@ final class FixtureTests: XCTestCase {
     func testTheBundledFixturesLoad() throws {
         let fixtures = repositoryRoot.appendingPathComponent("Fixtures")
         let showcase = try Fixture.load(from: fixtures.appendingPathComponent("showcase.json")).inbox(now: referenceDate)
-        XCTAssertEqual(InboxSection.allCases.map(showcase.count), [2, 2, 1, 2, 3, 3])
+        XCTAssertEqual(InboxSection.allCases.map(showcase.count), [2, 2, 1, 2, 3, 3, 0])
 
         XCTAssertEqual(try Fixture.load(from: fixtures.appendingPathComponent("empty.json")).inbox().count(.needsYourReview), 0)
 

@@ -136,7 +136,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(item.toolTip, "acme/api#42\nFix the thing\n\nClick to open on GitHub")
         XCTAssertGreaterThanOrEqual(item.indentationLevel, 1, "rows sit under their section header")
 
-        for (section, empty) in zip(InboxSection.allCases.dropFirst(), ["Nothing to review", "No drafts", "All caught up", "Nothing needs your action", "Nothing ready to merge"]) {
+        for (section, empty) in zip(InboxSection.allCases.dropFirst(), ["Nothing to review", "No drafts", "All caught up", "Nothing needs your action", "Nothing ready to merge", "Nothing queued"]) {
             XCTAssertTrue(titles.contains(empty), "\(section) should say \(empty)")
         }
         let refresh = try XCTUnwrap(titles.first { $0.hasPrefix("Refresh now") })
@@ -157,7 +157,7 @@ final class MenuTests: XCTestCase {
         let app = AppDelegate()
         app.rebuildMenuForTesting()
         let titles = menuTitles(app)
-        for expected in ["Open inbox on GitHub", "Set GitHub token…", "Launch at login", "Quit pullbar"] {
+        for expected in ["Open inbox on GitHub", "Set GitHub token…", "Launch at login", "Check for updates…", "Quit pullbar"] {
             XCTAssertTrue(titles.contains(expected), "missing \(expected)")
         }
         XCTAssertEqual(app.menuForTesting.items.first { $0.title == "Open inbox on GitHub" }?.keyEquivalent, "o")

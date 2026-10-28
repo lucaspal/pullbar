@@ -18,6 +18,7 @@ struct Fixture: Decodable {
         /// "3h", "2d", "5w".
         let updated: String
         var isDraft: Bool?
+        var isInMergeQueue: Bool?
         /// "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", or omitted.
         var reviewDecision: String?
         /// "MERGEABLE" (default), "CONFLICTING", or "UNKNOWN".
@@ -111,7 +112,8 @@ extension Fixture.PR {
             reviewDecision: decision,
             mergeable: mergeState,
             checks: checkState,
-            commentCount: comments ?? 0
+            commentCount: comments ?? 0,
+            isInMergeQueue: isInMergeQueue ?? false
         )
     }
 
