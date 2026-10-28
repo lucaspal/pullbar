@@ -71,18 +71,22 @@ new_release_entry() {
 }
 
 # Print the two newest CHANGELOG entries with every heading one level lower,
-# skipping Unreleased while it is empty.
+# skipping Unreleased while it is empty and omitting pull request lists.
 newest_entries() {
     awk -v empty="$EMPTY" '
-        function flush(    i, last, fence, line) {
+        function flush(    i, last, fence, line, pullrequests) {
             if (n == 0) return
             last = n
             while (last > 1 && buf[last] ~ /^[[:space:]]*$/) last--
             if (!(unreleased && !content) && taken < 2) {
                 if (taken++) print ""
-                fence = 0
+                fence = 0; pullrequests = 0
                 for (i = 1; i <= last; i++) {
                     line = buf[i]
+                    if (!fence && line ~ /^### /) {
+                        pullrequests = (line == "### Pull requests")
+                    }
+                    if (pullrequests) continue
                     if (line ~ /^```/) fence = !fence
                     else if (!fence && line ~ /^#+ /) line = "#" line
                     print line
