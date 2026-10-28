@@ -16,6 +16,13 @@ describes the release steps. Keep **Unreleased** as the first entry.
 
 _Nothing yet._
 
+## [1.2.0](https://github.com/lucaspal/Pullbar/releases/tag/v1.2.0) - 2026-10-28
+
+### Pull requests
+
+- Keep release history in CHANGELOG.md instead of duplicating it in README ([#35](https://github.com/lucaspal/pullbar/pull/35)) by @lucaspal
+- Add merge queue section and Sparkle app integration ([#36](https://github.com/lucaspal/pullbar/pull/36)) by @lucaspal
+
 ## [1.1.0](https://github.com/lucaspal/Pullbar/releases/tag/v1.1.0) - 2026-10-28
 
 ### Added
