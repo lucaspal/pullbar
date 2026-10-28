@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prepare a release: on a new release/<tag> branch, move the Unreleased notes
 # in CHANGELOG.md into an entry for <tag>, add the pull requests merged since
-# the previous tag, refresh the README changelog block, and commit.
+# the previous tag, and commit.
 #
 # Usage: scripts/create-release.sh v1.2.3
 #
@@ -42,7 +42,7 @@ REPO="$REPO" scripts/release-notes.sh --summary HEAD > "$SUMMARY"
 
 git switch --quiet -c "release/$TAG"
 scripts/changelog.sh release "${TAG#v}" "$REPO" "$SUMMARY"
-git add CHANGELOG.md README.md
+git add CHANGELOG.md
 git commit --quiet -m "Release $TAG"
 
 echo "Prepared release/$TAG:"
