@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private var timer: Timer?
+    private let appUpdater = AppUpdater()
 
     private var token: String?
     private var inbox: Inbox?
@@ -47,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             scheduleTimer()
             refresh()
         } else {
+            appUpdater.start()
             Task { await bootstrapToken() }
         }
     }
@@ -297,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(updatedWindowMenu())
         menu.addItem(refreshIntervalMenu())
         menu.addItem(launchAtLoginItem())
+        menu.addItem(appUpdater.menuItem())
         menu.addItem(makeItem("Set GitHub token…", #selector(setToken)))
         menu.addItem(.separator())
         menu.addItem(makeItem("Quit pullbar", #selector(quit), key: "q"))
@@ -389,6 +392,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let statusColor: NSColor
         if pr.isDraft {
             statusColor = .secondaryLabelColor
+        } else if pr.isInMergeQueue {
+            statusColor = .systemBlue
         } else {
             switch pr.reviewDecision {
             case .approved: statusColor = .systemGreen

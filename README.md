@@ -8,7 +8,7 @@
 
 pullbar is a native macOS menu bar app for checking your open GitHub pull
 requests without opening a browser. It reads GitHub's GraphQL API and presents
-six inbox-style sections in a menu-bar popover. It has no Dock icon or main
+seven inbox-style sections in a menu-bar popover. It has no Dock icon or main
 window.
 
 ![pullbar menu example](pullbar-screenshot.png)
@@ -23,13 +23,15 @@ sorts the resulting pull requests by update time into these sections:
 - **Needs your teams' review** — returned by `review-requested:@me`, excluding
   pull requests already in **Needs your review**.
 - **Your drafts** — your open draft pull requests.
-- **Waiting for review or checks** — your non-draft pull requests that neither
-  need action nor meet this app's ready-to-merge conditions.
-- **Needs action** — your pull requests with changes requested, a failing check
-  rollup, or a merge conflict.
-- **Ready to merge** — your non-draft, non-conflicting pull requests whose
-  review decision is approved or not required and whose check rollup is
-  successful (or absent).
+- **Waiting for review or checks** — your non-draft, non-queued pull requests
+  that neither need action nor meet this app's ready-to-merge conditions.
+- **Needs action** — your non-queued pull requests with changes requested, a
+  failing check rollup, or a merge conflict.
+- **Ready to merge** — your non-draft, non-queued, non-conflicting pull requests
+  whose review decision is approved or not required and whose check rollup
+  is successful (or absent).
+- **Queued** — your non-draft pull requests in GitHub’s merge queue, including
+  those waiting for queue checks. Their status reads **Queued**.
 
 For each pull request, the menu displays its repository and number, author,
 last-updated time, review state, check summary, merge-conflict indicator, and
@@ -38,7 +40,7 @@ comment count. Selecting a row opens that pull request in the default browser.
 The menu-bar title shows the count needing your review. If there are team
 requests, it appends their count (for example, `5+1`); if one of your pull
 requests needs action, it appends `⚠︎` and that count. Hover over the title to
-see the counts for all six sections.
+see the counts for all seven sections.
 
 ## Requirements
 
@@ -48,8 +50,8 @@ see the counts for all six sections.
 - Xcode Command Line Tools, which provide `swift`
 - A GitHub personal access token, or an authenticated GitHub CLI (`gh`) session
 
-The project uses only Apple frameworks: AppKit, Foundation, Security, and
-ServiceManagement.
+The project uses Apple frameworks (AppKit, Foundation, Security, and
+ServiceManagement) and the MIT-licensed Sparkle framework for automatic updates.
 
 ## Releases and automatic updates
 
@@ -73,11 +75,14 @@ The private key is never committed to the repository or included in the app.
 Keep a secure backup and reuse it for future releases. It is a Sparkle key,
 independent of any Apple ID or laptop; Keychain stores the local copy.
 
-**Configuration is prepared; automatic updates are not enabled on `main` yet.**
-The Sparkle app integration and the workflow that signs and publishes
-`appcast.xml` still need to be merged and tested. The current tag workflow
-publishes only the app ZIP, and no release has been published at this checkpoint.
-Setting the GitHub keys alone does not change that behavior.
+**The app includes Sparkle integration; the release pipeline still needs work.**
+The current tag workflow publishes only the app ZIP. It does not yet sign and
+publish `appcast.xml`, so automatic updates are not ready for release use.
+
+The menu's **Check for updates…** uses the stable release feed when configured.
+It is disabled when the build has no update key, when running a bare executable,
+or when the app must first be moved out of a temporary download location.
+See [update setup and release prerequisites](docs/updates.md).
 
 Sparkle is [free and MIT licensed](https://sparkle-project.org/). Its Ed25519
 update signing does not require a paid Apple Developer account. Developer ID
@@ -215,14 +220,15 @@ time the menu opens, so edits show up on the next open.
 
 | Fixture | Shows |
 |---|---|
-| `Fixtures/showcase.json` | Every section and state: drafts, pending, failing and passing checks, changes requested, a conflict, team requests, and large comment counts. |
+| `Fixtures/showcase.json` | Review and check states: drafts, pending, failing and passing checks, changes requested, a conflict, team requests, and large comment counts. |
 | `Fixtures/empty.json` | An inbox with nothing in it. |
 | `Fixtures/error.json` | A failed refresh: the error banner above a partial inbox. |
 
 In a fixture, `direct` and `teams` are review requests and `authored` are
 your own pull requests, which the app sorts into sections by the same rules
 as real data. `updated` is relative (`45m`, `3h`, `2d`, `5w`), so a fixture
-looks the same whenever it is shown. See `Sources/pullbar/Fixture.swift` for
+looks the same whenever it is shown. Set `isInMergeQueue` to `true` to show a
+queued pull request. See `Sources/pullbar/Fixture.swift` for
 every field.
 
 ## Authentication and stored data

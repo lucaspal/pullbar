@@ -285,7 +285,8 @@ final class GitHubClient: @unchecked Sendable {
             reviewDecision: node.reviewDecision.flatMap(ReviewDecision.init(rawValue:)),
             mergeable: node.mergeable.flatMap(Mergeable.init(rawValue:)) ?? .unknown,
             checks: checks,
-            commentCount: node.comments?.totalCount ?? 0
+            commentCount: node.comments?.totalCount ?? 0,
+            isInMergeQueue: node.isInMergeQueue ?? false
         )
         return (pr, usage)
     }
@@ -467,6 +468,7 @@ enum GQL {
         let title: String?
         let url: URL?
         let isDraft: Bool?
+        let isInMergeQueue: Bool?
         let updatedAt: Date?
         let mergeable: String?
         let reviewDecision: String?
@@ -482,6 +484,7 @@ enum GQL {
     title
     url
     isDraft
+    isInMergeQueue
     updatedAt
     mergeable
     reviewDecision

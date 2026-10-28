@@ -57,6 +57,30 @@ final class InboxBatchTests: XCTestCase {
         XCTAssertEqual(inbox.apiUsage?.lastRefreshRequests, 1)
     }
 
+    func testQueuedPullRequestsHaveTheirOwnSectionWhileChecksRun() async throws {
+        var queued = prNode(id: "queued", reviewDecision: "APPROVED",
+                            rollup: rollup(state: "PENDING", contexts: [statusContext("PENDING")]))
+        queued["isInMergeQueue"] = true
+        var green = prNode(id: "green", reviewDecision: "APPROVED")
+        green["isInMergeQueue"] = true
+        var failing = prNode(id: "failing", rollup: rollup(state: "FAILURE", contexts: [checkRun("FAILURE")]))
+        failing["isInMergeQueue"] = true
+        var ready = prNode(id: "ready")
+        ready["isInMergeQueue"] = false
+        let nodes = [queued, green, failing, ready, prNode(id: "legacy")]
+        StubGitHub.install { _ in (200, self.result(authored: nodes)) }
+
+        let inbox = try await InboxService(client: client()).fetch(window: .all)
+        let section = try XCTUnwrap(InboxSection.allCases.first { $0.title == "Queued" })
+        XCTAssertEqual(Set(inbox.pullRequests(in: section).map(\.id)), ["queued", "green", "failing"])
+        XCTAssertEqual(Set(inbox.pullRequests(in: .readyToMerge).map(\.id)), ["ready", "legacy"])
+        XCTAssertEqual(inbox.count(.waitingForReviewOrChecks), 0)
+        XCTAssertEqual(inbox.count(.needsAction), 0)
+        XCTAssertEqual(inbox.pullRequests(in: section).map(\.reviewStatusLabel), ["Queued", "Queued", "Queued"])
+        XCTAssertEqual(StubGitHub.requests.count, 1)
+        XCTAssertTrue(try XCTUnwrap(StubGitHub.requests.first).query.contains("isInMergeQueue"))
+    }
+
     func testPagingRequestsOnlyAliasesThatHaveAnotherPage() async throws {
         StubGitHub.install { request in
             if request.query.contains("requested: search") && request.variables["requestedAfter"] == nil {

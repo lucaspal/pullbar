@@ -46,6 +46,7 @@ struct PullRequest: Identifiable, Hashable {
     let mergeable: Mergeable
     let checks: Checks?
     let commentCount: Int
+    let isInMergeQueue: Bool
 
     /// The user or organisation that owns the repository: "acme" for "acme/api".
     var owner: String {
@@ -60,16 +61,17 @@ struct PullRequest: Identifiable, Hashable {
         reviewDecision == .changesRequested || hasFailingChecks || mergeable == .conflicting
     }
 
-    /// Approved (or no review required), checks green (or none), no conflict.
+    /// Not queued, approved (or no review required), checks green (or none), no conflict.
     var isReadyToMerge: Bool {
         let reviewOK = reviewDecision == .approved || reviewDecision == nil
         let checksOK = checks == nil || checks?.state == .success
-        return reviewOK && checksOK && mergeable != .conflicting
+        return !isInMergeQueue && reviewOK && checksOK && mergeable != .conflicting
     }
 
-    /// The label github.com shows in the inbox's status column.
+    /// Review or merge queue status shown in the inbox's status column.
     var reviewStatusLabel: String {
         if isDraft { return "Not ready" }
+        if isInMergeQueue { return "Queued" }
         switch reviewDecision {
         case .approved: return "Approved"
         case .changesRequested: return "Changes requested"
@@ -79,7 +81,7 @@ struct PullRequest: Identifiable, Hashable {
     }
 }
 
-/// The sections of github.com/pulls/inbox, in the order the site shows them.
+/// Inbox sections, with queued authored pull requests following ready to merge.
 enum InboxSection: CaseIterable {
     case needsYourReview
     case needsTeamsReview
@@ -87,6 +89,7 @@ enum InboxSection: CaseIterable {
     case waitingForReviewOrChecks
     case needsAction
     case readyToMerge
+    case queued
 
     var title: String {
         switch self {
@@ -96,6 +99,7 @@ enum InboxSection: CaseIterable {
         case .waitingForReviewOrChecks: return "Waiting for review or checks"
         case .needsAction: return "Needs action"
         case .readyToMerge: return "Ready to merge"
+        case .queued: return "Queued"
         }
     }
 
@@ -106,6 +110,7 @@ enum InboxSection: CaseIterable {
         case .waitingForReviewOrChecks: return "All caught up"
         case .needsAction: return "Nothing needs your action"
         case .readyToMerge: return "Nothing ready to merge"
+        case .queued: return "Nothing queued"
         }
     }
 }
@@ -159,12 +164,12 @@ struct Inbox {
             }
     }
 
-    /// Splits the three raw searches into the six inbox sections.
+    /// Splits the three raw searches into the seven inbox sections.
     ///
     /// - `userReviewRequested`: `user-review-requested:@me` — asked directly.
     /// - `reviewRequested`: `review-requested:@me` — directly or via a team;
     ///   whatever is not in the first list is a team request.
-    /// - `authored`: `author:@me`, split by draft / blocked / ready / waiting.
+    /// - `authored`: `author:@me`, split by draft / queued / blocked / ready / waiting.
     static func build(
         reviewRequested: [PullRequest],
         userReviewRequested: [PullRequest],
@@ -180,9 +185,12 @@ struct Inbox {
         var waiting: [PullRequest] = []
         var action: [PullRequest] = []
         var ready: [PullRequest] = []
+        var queued: [PullRequest] = []
         for pr in authored {
             if pr.isDraft {
                 drafts.append(pr)
+            } else if pr.isInMergeQueue {
+                queued.append(pr)
             } else if pr.needsAction {
                 action.append(pr)
             } else if pr.isReadyToMerge {
@@ -201,6 +209,7 @@ struct Inbox {
                 .waitingForReviewOrChecks: waiting.sorted(by: byUpdated),
                 .needsAction: action.sorted(by: byUpdated),
                 .readyToMerge: ready.sorted(by: byUpdated),
+                .queued: queued.sorted(by: byUpdated),
             ],
             viewerLogin: viewerLogin,
             fetchedAt: now,

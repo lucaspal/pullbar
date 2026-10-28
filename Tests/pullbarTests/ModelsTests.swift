@@ -40,6 +40,7 @@ final class PullRequestTests: XCTestCase {
     func testIsReadyToMerge() {
         // Approved or no review required, checks green or none, no conflict.
         XCTAssertTrue(makePR(reviewDecision: .approved, checks: checks(.success)).isReadyToMerge)
+        XCTAssertFalse(makePR(reviewDecision: .approved, checks: checks(.success), isInMergeQueue: true).isReadyToMerge)
         XCTAssertTrue(makePR(reviewDecision: nil, checks: nil).isReadyToMerge)
         XCTAssertTrue(makePR(reviewDecision: .approved, mergeable: .unknown).isReadyToMerge)
 
@@ -71,24 +72,24 @@ final class PullRequestTests: XCTestCase {
 }
 
 final class InboxSectionTests: XCTestCase {
-    func testOrderMatchesGitHub() {
+    func testSectionOrder() {
         XCTAssertEqual(InboxSection.allCases, [
             .needsYourReview, .needsTeamsReview, .yourDrafts,
-            .waitingForReviewOrChecks, .needsAction, .readyToMerge,
+            .waitingForReviewOrChecks, .needsAction, .readyToMerge, .queued,
         ])
     }
 
     func testTitles() {
         XCTAssertEqual(InboxSection.allCases.map(\.title), [
             "Needs your review", "Needs your teams' review", "Your drafts",
-            "Waiting for review or checks", "Needs action", "Ready to merge",
+            "Waiting for review or checks", "Needs action", "Ready to merge", "Queued",
         ])
     }
 
     func testEmptyTexts() {
         XCTAssertEqual(InboxSection.allCases.map(\.emptyText), [
             "Nothing to review", "Nothing to review", "No drafts",
-            "All caught up", "Nothing needs your action", "Nothing ready to merge",
+            "All caught up", "Nothing needs your action", "Nothing ready to merge", "Nothing queued",
         ])
     }
 }
@@ -139,6 +140,16 @@ final class InboxBuildTests: XCTestCase {
         let inbox = build(requested: [old, new, middle], direct: [old, new, middle], authored: [old, new, middle])
         XCTAssertEqual(inbox.pullRequests(in: .needsYourReview).map(\.id), ["new", "middle", "old"])
         XCTAssertEqual(inbox.pullRequests(in: .readyToMerge).map(\.id), ["new", "middle", "old"])
+    }
+
+    func testQueuedPullRequestsAreNewestFirstAndDraftsStayDrafts() {
+        let old = makePR(id: "old", updatedAt: referenceDate.addingTimeInterval(-3600), isInMergeQueue: true)
+        let new = makePR(id: "new", isInMergeQueue: true)
+        let draft = makePR(id: "draft", isDraft: true, isInMergeQueue: true)
+        let inbox = build(authored: [old, draft, new])
+        XCTAssertEqual(inbox.pullRequests(in: .queued).map(\.id), ["new", "old"])
+        XCTAssertEqual(inbox.pullRequests(in: .yourDrafts).map(\.id), ["draft"])
+        XCTAssertEqual(draft.reviewStatusLabel, "Not ready")
     }
 
     func testCountsViewerAndTime() {
