@@ -64,9 +64,8 @@ repository can write to the tap, and cask updates are merged only as part of
 a release the user asked for (step 7).
 
 The changelog is prepared locally first, so the tagged commit already
-contains its own `CHANGELOG.md` entry and README section. Do not edit the
-README changelog block (between `<!-- changelog:start -->` and
-`<!-- changelog:end -->`) by hand; `scripts/changelog.sh` owns it.
+contains its own `CHANGELOG.md` entry. `scripts/changelog.sh` prepares that
+entry; the README links to the changelog without copying release entries.
 
 The release scripts need only git, bash, awk, and the GitHub CLI. Check that
 `gh auth status` reports a logged-in account before you start.
@@ -170,8 +169,8 @@ pull requests merged since then (`scripts/release-notes.sh --summary
 origin/main`). Use the version the user gave, if any. Ask if it is not
 obvious.
 
-Optional: add highlights under `## Unreleased` in `CHANGELOG.md`, run
-`scripts/changelog.sh readme`, and merge that to `main` first. The merged pull
+Optional: add highlights under `## Unreleased` in `CHANGELOG.md` and merge
+that to `main` first. The merged pull
 requests are listed automatically, so this is only for a summary.
 
 ### 4. Prepare and merge the release pull request
@@ -185,7 +184,7 @@ scripts/create-release.sh v1.2.3
 
 The script checks the tag, creates the `release/v1.2.3` branch, moves the
 Unreleased notes into a `1.2.3` entry, adds the list of pull requests merged
-since the previous tag, refreshes the README block, and commits
+since the previous tag, and commits
 `Release v1.2.3`. Check the commit with `git show`: the entry must list the
 pull requests you merged in step 1.
 
