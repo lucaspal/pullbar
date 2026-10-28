@@ -115,6 +115,65 @@ relaunch. Pre-releases must not replace the stable feed. Users of older
 Verify a complete signed update between two real versions before treating this
 installation flow as tested.
 
+### Generating a new release
+
+The commands below use `v1.2.3` as an example; choose the intended version
+before starting. Use an authenticated GitHub CLI and a clean checkout. These
+commands publish a release, so run them only when a release has been requested.
+
+Prepare the release branch from the latest `main`:
+
+```sh
+gh auth status
+git switch main
+git pull --ff-only origin main
+tag=v1.2.3
+scripts/create-release.sh "$tag"
+git show -- CHANGELOG.md README.md
+release_head="$(git rev-parse HEAD)"
+git push -u origin "release/$tag"
+gh pr create --base main --head "release/$tag" --title "Release $tag" --fill
+gh pr checks "release/$tag" --watch --fail-fast
+```
+
+The script generates the changelog entry and README changelog block, listing
+PRs merged since the previous release. Do not edit the generated README block
+by hand. Review the release PR and satisfy every merge gate in [AGENTS.md](AGENTS.md)
+before proceeding. Merge only the prepared head, then find the Build run for
+that exact release merge commit:
+
+```sh
+gh pr merge "release/$tag" --merge --match-head-commit "$release_head"
+release_merge="$(gh pr view "release/$tag" --json mergeCommit --jq .mergeCommit.oid)"
+git fetch origin main
+gh run list --workflow build.yml --branch main --commit "$release_merge"   --json databaseId,status,conclusion
+```
+
+Wait until the run appears, then pass its `databaseId` to
+`gh run watch <databaseId> --exit-status`. Stop if it fails. Once it succeeds,
+tag the release merge commit, even if other changes have since reached `main`:
+
+```sh
+git tag -a "$tag" -m "Release $tag" "$release_merge"
+git push origin "$tag"
+gh run list --workflow build.yml --branch "$tag"   --json databaseId,status,conclusion
+```
+
+The tag push starts release generation. Selecting **Run workflow** on `main`
+does not publish a release. Wait for the tag run to appear, watch its
+`databaseId` with `gh run watch <databaseId> --exit-status`, then inspect:
+
+```sh
+gh release view "$tag"
+```
+
+Confirm the release notes include the expected PRs and the asset is named
+`pullbar-1.2.3-darwin-arm64.zip` for this example. Once the pending Sparkle
+pipeline is merged, also require the signed `appcast.xml` and a successful
+update-signature verification job. For stable releases, complete the Homebrew
+tap steps in [AGENTS.md](AGENTS.md) if the tap is configured. A rejected tag push
+or any failed check is a reason to stop, not bypass the protection.
+
 ## Build and run
 
 Run these commands from the repository root:
