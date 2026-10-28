@@ -51,6 +51,70 @@ see the counts for all six sections.
 The project uses only Apple frameworks: AppKit, Foundation, Security, and
 ServiceManagement.
 
+## Releases and automatic updates
+
+Merging a change into `main` runs the **Build** workflow: tests, app build, and
+code-signature verification. It does **not** publish a GitHub release or send
+an update to installed apps. A maintainer requests a release separately, after
+choosing which changes to ship and a semantic version.
+
+### Sparkle setup checkpoint
+
+As of 28 October 2026, the upstream repository has the update-signing
+configuration prepared:
+
+| GitHub setting | Purpose |
+|---|---|
+| Repository Actions variable `SPARKLE_PUBLIC_KEY` | Public verification key to embed in update-enabled builds. |
+| `release` environment secret `SPARKLE_PRIVATE_KEY` | Private key for signing update archives and the update feed. |
+| `release` deployment policy: tags matching `v*` only | Restricts which refs can use the environment secret. |
+
+The private key is never committed to the repository or included in the app.
+Keep a secure backup and reuse it for future releases. It is a Sparkle key,
+independent of any Apple ID or laptop; Keychain stores the local copy.
+
+**Configuration is prepared; automatic updates are not enabled on `main` yet.**
+The Sparkle app integration and the workflow that signs and publishes
+`appcast.xml` still need to be merged and tested. The current tag workflow
+publishes only the app ZIP, and no release has been published at this checkpoint.
+Setting the GitHub keys alone does not change that behavior.
+
+Sparkle is [free and MIT licensed](https://sparkle-project.org/). Its Ed25519
+update signing does not require a paid Apple Developer account. Developer ID
+signing and Apple notarization are optional improvements to the first-launch
+experience. Until those are configured, releases are ad-hoc signed and macOS
+can warn on first launch. Standard GitHub-hosted Actions runners are
+[free for public repositories](https://docs.github.com/en/actions/concepts/billing-and-usage),
+subject to GitHub's usage and storage limits.
+
+### Shipping changes after they reach main
+
+1. Let the **Build** workflow pass for the exact `main` commit being released.
+   Changes can accumulate across several merges before a release is requested.
+2. Choose the version: patch for fixes, minor for features, major for breaking
+   changes. From a clean, up-to-date `main`, run
+   `scripts/create-release.sh vX.Y.Z` with the chosen version. It prepares the
+   changelog, README changelog block, and `release/vX.Y.Z` branch.
+3. Push that branch and open the release PR. Review the generated list of
+   changes, wait for its checks, and follow the merge gates in [AGENTS.md](AGENTS.md).
+   After merging, require a successful **Build** run for that release merge commit.
+4. Tag **that exact release merge commit** with `vX.Y.Z` and push the tag.
+   A later merge to `main` does not change which commit should be tagged.
+5. Wait for the tag's **Build** workflow to finish and verify the GitHub release,
+   its notes, and `pullbar-X.Y.Z-darwin-arm64.zip`. Passing branch or PR checks
+   alone does not verify the tag-only publishing job.
+6. For stable releases, update the Homebrew tap if it is configured, following
+   [AGENTS.md](AGENTS.md). Pre-releases such as `vX.Y.Z-rc.1` skip the tap update.
+
+Once the pending Sparkle integration is shipped, the tag pipeline must also
+sign and verify the archive and `appcast.xml` before publishing them. Installed
+Sparkle-enabled apps will then discover stable releases through
+`releases/latest/download/appcast.xml` and offer download, installation, and
+relaunch. Pre-releases must not replace the stable feed. Users of older
+`make install` builds need one manual upgrade to a Sparkle-enabled build first.
+Verify a complete signed update between two real versions before treating this
+installation flow as tested.
+
 ## Build and run
 
 Run these commands from the repository root:
